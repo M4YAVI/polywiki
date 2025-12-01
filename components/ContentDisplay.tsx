@@ -1,0 +1,193 @@
+import React, { useState, useEffect, useMemo } from 'react';
+
+interface ContentDisplayProps {
+  content: string;
+  isLoading: boolean;
+  onWordClick: (word: string) => void;
+}
+
+interface Section {
+  title: string;
+  content: string;
+}
+
+const InteractiveContent: React.FC<{
+  content: string;
+  onWordClick: (word: string) => void;
+}> = ({ content, onWordClick }) => {
+  const words = content.split(/(\s+)/).filter(Boolean); // Keep whitespace for spacing
+
+  return (
+    <p style={{ margin: 0, lineHeight: '1.6' }}>
+      {words.map((word, index) => {
+        // Only make non-whitespace words clickable
+        if (/\S/.test(word)) {
+          const cleanWord = word.replace(/[.,!?;:()"']/g, '');
+          if (cleanWord) {
+            return (
+              <button
+                key={index}
+                onClick={() => onWordClick(cleanWord)}
+                className="interactive-word"
+                aria-label={`Learn more about ${cleanWord}`}
+              >
+                {word}
+              </button>
+            );
+          }
+        }
+        // Render whitespace as-is
+        return <span key={index}>{word}</span>;
+      })}
+    </p>
+  );
+};
+
+const StreamingContent: React.FC<{ content: string }> = ({ content }) => (
+  <p style={{ margin: 0, lineHeight: '1.6' }}>
+    {content}
+    <span className="blinking-cursor">|</span>
+  </p>
+);
+
+const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, isLoading, onWordClick }) => {
+  const [activeTab, setActiveTab] = useState<string>('General');
+
+  // Parse content into sections
+  const { sections, relatedTopics } = useMemo(() => {
+    const parts = content.split(/^##\s+(.+)$/gm);
+    const parsedSections: Section[] = [];
+    let related: string[] = [];
+
+    // If no headers found, treat entire content as "General"
+    if (parts.length === 1) {
+      parsedSections.push({ title: 'General', content: parts[0].trim() });
+    } else {
+      // Handle preamble if any (before first header)
+      if (parts[0].trim()) {
+        parsedSections.push({ title: 'General', content: parts[0].trim() });
+      }
+
+      // Iterate through pairs of (Title, Content)
+      for (let i = 1; i < parts.length; i += 2) {
+        const title = parts[i].trim();
+        const body = parts[i + 1] ? parts[i + 1].trim() : '';
+
+        if (title.toLowerCase() === 'related') {
+          // Parse bullet points for related topics
+          related = body
+            .split('\n')
+            .map(line => line.replace(/^[-*]\s+/, '').trim())
+            .filter(Boolean);
+        } else {
+          parsedSections.push({ title, content: body });
+        }
+      }
+    }
+    return { sections: parsedSections, relatedTopics: related };
+  }, [content]);
+
+  // Auto-select first tab if active tab doesn't exist (e.g. on new search)
+  useEffect(() => {
+    if (sections.length > 0 && !sections.find(s => s.title === activeTab)) {
+      setActiveTab(sections[0].title);
+    }
+  }, [sections, activeTab]);
+
+  // Find active section content
+  const activeSection = sections.find(s => s.title === activeTab) || sections[0];
+
+  if (!content) return null;
+
+  return (
+    <div className="content-display">
+      {/* Tabs */}
+      {sections.length > 1 && (
+        <div className="tabs-container" style={{
+          display: 'flex',
+          gap: '1rem',
+          marginBottom: '1.5rem',
+          overflowX: 'auto',
+          paddingBottom: '0.5rem',
+          borderBottom: '1px solid rgba(255,255,255,0.1)'
+        }}>
+          {sections.map((section) => (
+            <button
+              key={section.title}
+              onClick={() => setActiveTab(section.title)}
+              className={`tab-button ${activeTab === section.title ? 'active' : ''}`}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: activeTab === section.title ? 'white' : '#888',
+                cursor: 'pointer',
+                fontSize: '0.9rem',
+                fontWeight: activeTab === section.title ? 'bold' : 'normal',
+                padding: '0.5rem 0',
+                textTransform: 'uppercase',
+                borderBottom: activeTab === section.title ? '2px solid white' : '2px solid transparent',
+                transition: 'all 0.2s ease',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              {section.title}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Content Area */}
+      <div className="tab-content">
+        {isLoading && activeSection === sections[sections.length - 1] ? (
+          // If we are loading and this is the last section (likely being streamed), show cursor
+          // Note: This is a simplification. Ideally we'd know if THIS specific section is still streaming.
+          // For now, if global loading is true, we assume the last section is the active one receiving data.
+          <StreamingContent content={activeSection.content} />
+        ) : (
+          <InteractiveContent content={activeSection.content} onWordClick={onWordClick} />
+        )}
+      </div>
+
+      {/* Related Topics */}
+      {relatedTopics.length > 0 && (
+        <div className="related-topics" style={{ marginTop: '2rem', paddingTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+          <h4 style={{ fontSize: '0.8rem', textTransform: 'uppercase', color: '#888', marginBottom: '1rem' }}>
+            Down the Rabbit Hole
+          </h4>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+            {relatedTopics.map((topic, index) => (
+              <button
+                key={index}
+                onClick={() => onWordClick(topic)}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: '20px',
+                  padding: '0.5rem 1rem',
+                  color: '#ccc',
+                  cursor: 'pointer',
+                  fontSize: '0.9rem',
+                  transition: 'all 0.2s ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                  e.currentTarget.style.color = 'white';
+                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+                  e.currentTarget.style.color = '#ccc';
+                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                }}
+              >
+                {topic}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default ContentDisplay;
