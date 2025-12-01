@@ -32,7 +32,7 @@ export interface AsciiArtData {
  */
 function getAIClient(apiKey?: string): GoogleGenAI {
   // 1. Try passed key, 2. Try Env var
-  const key = apiKey || process.env.API_KEY;
+  const key = apiKey || import.meta.env.VITE_GEMINI_API_KEY;
   if (!key) {
     throw new Error('Gemini API Key is missing. Please add it in the Settings.');
   }
