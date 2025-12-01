@@ -4,6 +4,8 @@ interface ContentDisplayProps {
   content: string;
   isLoading: boolean;
   onWordClick: (word: string) => void;
+  isFavorite?: boolean;
+  onToggleFavorite?: () => void;
 }
 
 interface Section {
@@ -52,7 +54,7 @@ const InteractiveContent: React.FC<{
   );
 };
 
-const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, isLoading, onWordClick }) => {
+const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, isLoading, onWordClick, isFavorite, onToggleFavorite }) => {
   const [activeTab, setActiveTab] = useState<string>('General');
 
   // Parse content into sections
@@ -114,7 +116,29 @@ const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, isLoading, onW
   if (!content) return null;
 
   return (
-    <div className="content-display">
+    <div className="content-display" style={{ position: 'relative' }}>
+      {/* Favorite Button */}
+      {onToggleFavorite && (
+        <button
+          onClick={onToggleFavorite}
+          style={{
+            position: 'absolute',
+            top: '-3.5rem', // Align with tabs or header
+            right: 0,
+            background: 'none',
+            border: 'none',
+            color: isFavorite ? '#ff4444' : 'rgba(255,255,255,0.3)',
+            fontSize: '1.5rem',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+            zIndex: 10
+          }}
+          title={isFavorite ? "Remove from database" : "Save to database"}
+        >
+          {isFavorite ? '♥' : '♡'}
+        </button>
+      )}
+
       {/* Tabs - Always render to prevent layout shift */}
       <div className="tabs-container" style={{
         display: 'flex',

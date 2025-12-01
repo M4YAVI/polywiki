@@ -5,7 +5,9 @@ import ContentDisplay from './components/ContentDisplay';
 import SearchBar from './components/SearchBar';
 import LoadingSkeleton from './components/LoadingSkeleton';
 import HistoryBar from './components/HistoryBar';
+
 import SettingsModal from './components/SettingsModal';
+import FavoritesModal from './components/FavoritesModal';
 
 // --- Types ---
 export interface HistoryItem {
@@ -32,6 +34,9 @@ const App: React.FC = () => {
   });
 
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [isFavoritesOpen, setIsFavoritesOpen] = useState<boolean>(false);
+  const [isFavorite, setIsFavorite] = useState<boolean>(false);
+  const [favoriteId, setFavoriteId] = useState<string | null>(null);
 
   // --- State: History & Navigation ---
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -66,6 +71,73 @@ const App: React.FC = () => {
       return newHistory;
     });
   }, []);
+
+  // --- Favorites Logic ---
+  const checkFavoriteStatus = useCallback(async (label: string) => {
+    try {
+      const res = await fetch(`/api/favorites/check/${encodeURIComponent(label)}`);
+      const data = await res.json();
+      setIsFavorite(data.isFavorite);
+      if (data.favorite) {
+        setFavoriteId(data.favorite.id);
+      } else {
+        setFavoriteId(null);
+      }
+    } catch (err) {
+      console.error('Failed to check favorite status', err);
+    }
+  }, []);
+
+  const toggleFavorite = async () => {
+    if (!currentItem) return;
+
+    try {
+      if (isFavorite) {
+        // Remove
+        const idToDelete = favoriteId;
+        if (idToDelete) {
+          await fetch(`/api/favorites/${idToDelete}`, { method: 'DELETE' });
+          setIsFavorite(false);
+          setFavoriteId(null);
+        } else {
+          // Fallback if ID is missing
+          const res = await fetch(`/api/favorites/check/${encodeURIComponent(currentItem.label)}`);
+          const data = await res.json();
+          if (data.favorite) {
+            await fetch(`/api/favorites/${data.favorite.id}`, { method: 'DELETE' });
+            setIsFavorite(false);
+            setFavoriteId(null);
+          }
+        }
+      } else {
+        // Add
+        const res = await fetch('/api/favorites', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            label: currentItem.label,
+            content: currentItem.content,
+            type: currentItem.type
+          })
+        });
+        const newFav = await res.json();
+        setIsFavorite(true);
+        setFavoriteId(newFav.id);
+      }
+    } catch (err) {
+      console.error('Failed to toggle favorite', err);
+    }
+  };
+
+  // Check status when item changes
+  useEffect(() => {
+    if (currentItem) {
+      checkFavoriteStatus(currentItem.label);
+    } else {
+      setIsFavorite(false);
+      setFavoriteId(null);
+    }
+  }, [currentItem, checkFavoriteStatus]);
 
   const handleApiKeySave = (key: string, openRouterKey: string, cerebrasKey: string, model: string) => {
     setApiKey(key);
@@ -160,11 +232,26 @@ const App: React.FC = () => {
     }
   }, [currentItem, currentIndex, apiKey, openRouterApiKey, cerebrasApiKey, selectedModel]);
 
-  const handleSearch = useCallback((query: string) => {
-    addItemAndStream({
+  const handleSearch = useCallback((query: string, savedContent?: string, savedType?: 'text' | 'image') => {
+    const newItem: HistoryItem = {
       id: Date.now().toString(),
       label: query,
-      type: 'text'
+      type: savedType || 'text',
+      content: savedContent
+    };
+
+    setHistory(prev => {
+      const newHistory = prev.slice(0, currentIndex + 1);
+      newHistory.push(newItem);
+      const newIndex = newHistory.length - 1;
+      setCurrentIndex(newIndex);
+
+      // Only stream if we DON'T have saved content
+      if (!savedContent) {
+        startStreaming(newItem, newIndex, true);
+      }
+
+      return newHistory;
     });
   }, [currentIndex, apiKey, openRouterApiKey, cerebrasApiKey, selectedModel]);
 
@@ -271,6 +358,13 @@ const App: React.FC = () => {
         />
       )}
 
+      {isFavoritesOpen && (
+        <FavoritesModal
+          onClose={() => setIsFavoritesOpen(false)}
+          onSelect={(fav) => handleSearch(fav.label, fav.content, fav.type as 'text' | 'image')}
+        />
+      )}
+
       <input
         type="file"
         ref={fileInputRef}
@@ -286,6 +380,7 @@ const App: React.FC = () => {
           onRandom={handleRandom}
           onImageUpload={handleImageUpload}
           onSettings={() => setIsSettingsOpen(true)}
+          onFavorites={() => setIsFavoritesOpen(true)}
           isLoading={isLoading}
           canGoBack={currentIndex > 0}
           canGoForward={currentIndex < history.length - 1}
@@ -334,7 +429,13 @@ const App: React.FC = () => {
             {error && <ErrorDisplay error={error} />}
             {isLoading && (!currentItem?.content || currentItem.content.length < 20) && !error && <LoadingSkeleton />}
             {currentItem?.content && currentItem.content.length >= 20 && !error && (
-              <ContentDisplay content={currentItem.content} isLoading={isLoading} onWordClick={handleWordClick} />
+              <ContentDisplay
+                content={currentItem.content}
+                isLoading={isLoading}
+                onWordClick={handleWordClick}
+                isFavorite={isFavorite}
+                onToggleFavorite={toggleFavorite}
+              />
             )}
           </div>
         </div>
@@ -349,7 +450,13 @@ const App: React.FC = () => {
             {error && <ErrorDisplay error={error} />}
             {isLoading && (!currentItem?.content || currentItem.content.length < 20) && !error && <LoadingSkeleton />}
             {currentItem?.content && currentItem.content.length >= 20 && !error && (
-              <ContentDisplay content={currentItem.content} isLoading={isLoading} onWordClick={handleWordClick} />
+              <ContentDisplay
+                content={currentItem.content}
+                isLoading={isLoading}
+                onWordClick={handleWordClick}
+                isFavorite={isFavorite}
+                onToggleFavorite={toggleFavorite}
+              />
             )}
           </div>
         </div>
