@@ -120,9 +120,15 @@ const App: React.FC = () => {
             type: currentItem.type
           })
         });
-        const newFav = await res.json();
-        setIsFavorite(true);
-        setFavoriteId(newFav.id);
+        if (res.ok) {
+          const newFav = await res.json();
+          if (newFav && newFav.id) {
+            setIsFavorite(true);
+            setFavoriteId(newFav.id);
+          }
+        } else {
+          console.error('Failed to add favorite');
+        }
       }
     } catch (err) {
       console.error('Failed to toggle favorite', err);

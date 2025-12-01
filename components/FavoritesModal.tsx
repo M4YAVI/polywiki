@@ -27,11 +27,17 @@ const FavoritesModal: React.FC<FavoritesModalProps> = ({ onClose, onSelect }) =>
         fetch('/api/favorites')
             .then(res => res.json())
             .then(data => {
-                setFavorites(data);
+                if (Array.isArray(data)) {
+                    setFavorites(data);
+                } else {
+                    console.error('Unexpected response format:', data);
+                    setFavorites([]);
+                }
                 setIsLoading(false);
             })
             .catch(err => {
                 console.error('Failed to fetch favorites', err);
+                setFavorites([]);
                 setIsLoading(false);
             });
     }, []);
