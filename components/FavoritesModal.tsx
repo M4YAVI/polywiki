@@ -16,6 +16,7 @@ interface FavoritesModalProps {
 const FavoritesModal: React.FC<FavoritesModalProps> = ({ onClose, onSelect }) => {
     const [favorites, setFavorites] = useState<Favorite[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
 
     const filteredFavorites = favorites.filter(fav =>
@@ -25,19 +26,28 @@ const FavoritesModal: React.FC<FavoritesModalProps> = ({ onClose, onSelect }) =>
 
     useEffect(() => {
         fetch('/api/favorites')
-            .then(res => res.json())
+            .then(async res => {
+                if (!res.ok) {
+                    const errorData = await res.json().catch(() => ({}));
+                    throw new Error(errorData.error || `Server Error: ${res.status}`);
+                }
+                return res.json();
+            })
             .then(data => {
                 if (Array.isArray(data)) {
                     setFavorites(data);
+                    setError(null);
                 } else {
                     console.error('Unexpected response format:', data);
                     setFavorites([]);
+                    setError('Received invalid data from server.');
                 }
                 setIsLoading(false);
             })
             .catch(err => {
                 console.error('Failed to fetch favorites', err);
                 setFavorites([]);
+                setError(err.message || 'Failed to load favorites.');
                 setIsLoading(false);
             });
     }, []);
@@ -106,7 +116,7 @@ const FavoritesModal: React.FC<FavoritesModalProps> = ({ onClose, onSelect }) =>
                     }}>×</button>
                 </div>
 
-                {!isLoading && favorites.length > 0 && (
+                {!isLoading && !error && favorites.length > 0 && (
                     <div style={{ padding: '0 1.5rem 1rem 1.5rem', borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
                         <input
                             type="text"
@@ -137,6 +147,12 @@ const FavoritesModal: React.FC<FavoritesModalProps> = ({ onClose, onSelect }) =>
                 }}>
                     {isLoading ? (
                         <div style={{ padding: '2rem', textAlign: 'center', opacity: 0.5, fontStyle: 'italic' }}>Accessing Neural Archives...</div>
+                    ) : error ? (
+                        <div style={{ padding: '2rem', textAlign: 'center', color: '#ff6b6b' }}>
+                            <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>⚠</div>
+                            <p>{error}</p>
+                            <p style={{ fontSize: '0.8rem', opacity: 0.7, marginTop: '1rem' }}>Check Netlify Logs for details.</p>
+                        </div>
                     ) : favorites.length === 0 ? (
                         <div style={{ padding: '3rem', textAlign: 'center', opacity: 0.5 }}>
                             <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>♡</div>
