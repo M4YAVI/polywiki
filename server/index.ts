@@ -4,7 +4,11 @@ import { serve } from '@hono/node-server';
 import { db } from './db';
 import { favorites } from './db/schema';
 import { eq, desc } from 'drizzle-orm';
-import { randomUUID } from 'node:crypto';
+
+// Simple ID generator
+function generateId() {
+    return Date.now().toString(36) + Math.random().toString(36).substring(2);
+}
 
 const app = new Hono();
 
@@ -37,7 +41,7 @@ app.post('/api/favorites', async (c) => {
         }
 
         const newFavorite = {
-            id: randomUUID(),
+            id: generateId(),
             label,
             content,
             type: type || 'text',
