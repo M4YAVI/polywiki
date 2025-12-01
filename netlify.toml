@@ -4,6 +4,7 @@
 
 [functions]
   directory = "netlify/functions"
+  external_node_modules = ["@libsql/client"]
 
 [[redirects]]
   from = "/api/*"
