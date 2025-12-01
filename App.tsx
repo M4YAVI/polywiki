@@ -45,21 +45,18 @@ const App: React.FC = () => {
   const currentItem = currentIndex >= 0 ? history[currentIndex] : null;
 
   // --- State: Content Generation ---
-  const [content, setContent] = useState<string>('');
+  // We derive 'content' directly from the current history item to support background streaming.
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
   // Ref for file input
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // --- Helpers ---
-  const addToHistory = (newItem: HistoryItem) => {
-    const newHistory = history.slice(0, currentIndex + 1);
-    newHistory.push(newItem);
-    setHistory(newHistory);
-    setCurrentIndex(newHistory.length - 1);
-  };
+  // We use a ref to track active streams if we ever want to cancel them, 
+  // but for now we let them run to support background streaming.
+  // const isCancelled = useRef<boolean>(false); 
 
+  // --- Helpers ---
   const updateHistoryContent = useCallback((index: number, text: string) => {
     setHistory(prev => {
       const newHistory = [...prev];
@@ -86,6 +83,63 @@ const App: React.FC = () => {
     setIsSettingsOpen(false);
   };
 
+  // --- Streaming Logic ---
+  const startStreaming = async (item: HistoryItem, index: number, forceActive: boolean = false) => {
+    // Only set loading/error state if this is the currently viewed item OR if we are forcing it (e.g. new search)
+    if (index === currentIndex || forceActive) {
+      setIsLoading(true);
+      setError(null);
+    }
+
+    let accumulatedContent = '';
+    try {
+      const streamSource = item.type === 'image' && item.file
+        ? streamImageDescription(item.file, apiKey)
+        : streamDefinition(item.label, apiKey, openRouterApiKey, cerebrasApiKey, selectedModel);
+
+      for await (const chunk of streamSource) {
+        if (chunk.startsWith('Error:')) throw new Error(chunk);
+        accumulatedContent += chunk;
+        updateHistoryContent(index, accumulatedContent);
+      }
+
+      // Final update to ensure everything is captured
+      updateHistoryContent(index, accumulatedContent);
+
+    } catch (e: unknown) {
+      const errorMessage = e instanceof Error ? e.message : 'An unknown error occurred';
+      // Only set main error if this is the current item
+      if (index === currentIndex) {
+        setError(errorMessage);
+      }
+      updateHistoryContent(index, `Error: ${errorMessage}`);
+
+      if (errorMessage.includes('API_KEY') || errorMessage.includes('API Key')) {
+        setIsSettingsOpen(true);
+      }
+    } finally {
+      if (index === currentIndex) {
+        setIsLoading(false);
+      }
+    }
+  };
+
+  const addItemAndStream = (newItem: HistoryItem) => {
+    // 1. Add to history
+    // We need to calculate the new index based on *current* state
+    // Note: This assumes we are appending to the *end* of the current history stack (truncating forward history)
+    setHistory(prev => {
+      const newHistory = prev.slice(0, currentIndex + 1);
+      newHistory.push(newItem);
+      const newIndex = newHistory.length - 1;
+      setCurrentIndex(newIndex);
+      // 2. Start streaming for this specific item and index
+      // We pass forceActive=true because we just set the index to this item
+      startStreaming(newItem, newIndex, true);
+      return newHistory;
+    });
+  };
+
   // --- Cleanup for Object URL ---
   useEffect(() => {
     return () => {
@@ -93,88 +147,26 @@ const App: React.FC = () => {
     };
   }, [rootImageUrl]);
 
-  // --- Main Effect: Fetch Content ---
-  useEffect(() => {
-    if (!currentItem) return;
-
-    // 1. Check Cache
-    if (currentItem.content) {
-      setContent(currentItem.content);
-      setIsLoading(false);
-      setError(null);
-      return;
-    }
-
-    // 2. If no cache, fetch fresh content
-    let isCancelled = false;
-
-    const fetchContent = async () => {
-      setIsLoading(true);
-      setError(null);
-      setContent('');
-
-      let accumulatedContent = '';
-      try {
-        // If it's an image type item, we use the streamImageDescription
-        // NOTE: Even if we have a rootImage, if the history item is text (clicked word), we fetch definition.
-        // We only fetch image description if the history item specifically says it's the image analysis step.
-        const streamSource = currentItem.type === 'image' && currentItem.file
-          ? streamImageDescription(currentItem.file, apiKey)
-          : streamDefinition(currentItem.label, apiKey, openRouterApiKey, cerebrasApiKey, selectedModel);
-
-        for await (const chunk of streamSource) {
-          if (isCancelled) break;
-          if (chunk.startsWith('Error:')) throw new Error(chunk);
-          accumulatedContent += chunk;
-          if (!isCancelled) setContent(accumulatedContent);
-        }
-
-        // Cache the result if successful and not cancelled
-        if (!isCancelled) {
-          updateHistoryContent(currentIndex, accumulatedContent);
-        }
-
-      } catch (e: unknown) {
-        if (!isCancelled) {
-          const errorMessage = e instanceof Error ? e.message : 'An unknown error occurred';
-          setError(errorMessage);
-
-          if (errorMessage.includes('API_KEY') || errorMessage.includes('API Key')) {
-            setIsSettingsOpen(true);
-          }
-        }
-      } finally {
-        if (!isCancelled) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    fetchContent();
-
-    return () => { isCancelled = true; };
-  }, [currentItem, apiKey, currentIndex, updateHistoryContent]);
-
   // --- Event Handlers ---
 
   const handleWordClick = useCallback((word: string) => {
     const newLabel = word.trim();
     if (!currentItem || newLabel.toLowerCase() !== currentItem.label.toLowerCase()) {
-      addToHistory({
+      addItemAndStream({
         id: Date.now().toString(),
         label: newLabel,
         type: 'text'
       });
     }
-  }, [currentItem, history, currentIndex]);
+  }, [currentItem, currentIndex, apiKey, openRouterApiKey, cerebrasApiKey, selectedModel]);
 
   const handleSearch = useCallback((query: string) => {
-    addToHistory({
+    addItemAndStream({
       id: Date.now().toString(),
       label: query,
       type: 'text'
     });
-  }, [history, currentIndex]);
+  }, [currentIndex, apiKey, openRouterApiKey, cerebrasApiKey, selectedModel]);
 
   const handleImageUpload = useCallback((file: File) => {
     // 1. Set the root image which triggers the Split View
@@ -183,13 +175,13 @@ const App: React.FC = () => {
     setRootImageUrl(url);
 
     // 2. Add the initial analysis to history
-    addToHistory({
+    addItemAndStream({
       id: Date.now().toString(),
       label: 'Visual Analysis',
       type: 'image',
       file: file
     });
-  }, [history, currentIndex]);
+  }, [currentIndex, apiKey]);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -204,23 +196,52 @@ const App: React.FC = () => {
   const handleRandom = useCallback(() => {
     const concepts = ['Paradox', 'Entropy', 'Recursion', 'Silence', 'Chaos', 'Void'];
     const randomWord = concepts[Math.floor(Math.random() * concepts.length)];
-    addToHistory({
+    addItemAndStream({
       id: Date.now().toString(),
       label: randomWord,
       type: 'text'
     });
-  }, [history, currentIndex]);
+  }, [currentIndex, apiKey, openRouterApiKey, cerebrasApiKey, selectedModel]);
 
   const handleHistoryJump = (index: number) => {
     setCurrentIndex(index);
+    // Update loading state based on the target item
+    const item = history[index];
+    if (item && (!item.content || item.content.length === 0)) {
+      // It might be streaming in background, or just empty. 
+      // Since we don't track background loading state per item in this simple version,
+      // we might not show a spinner if we jump back to a streaming item.
+      // But the content will update live.
+      // For now, we assume if content is empty, it's loading or errored.
+      // If it's currently streaming, isLoading will be true.
+      // If it's not streaming and content is empty, it means it hasn't started or errored.
+      // We can re-trigger streaming if needed, but for now, we rely on the background stream.
+      // If we jump to an item that hasn't started streaming yet, we should start it.
+      // This is a simplification for now.
+      // For a more robust solution, each history item would need its own loading/error state.
+      setIsLoading(true); // Assume loading if content is empty
+      setError(null); // Clear error when jumping
+      startStreaming(item, index); // Re-trigger stream if content is empty
+    } else {
+      setIsLoading(false); // Not loading if content is already there
+      setError(null); // Clear error when jumping
+    }
   };
 
   const handleBack = () => {
-    if (currentIndex > 0) setCurrentIndex(currentIndex - 1);
+    if (currentIndex > 0) {
+      setCurrentIndex(currentIndex - 1);
+      setIsLoading(false); // Clear loading state when navigating
+      setError(null); // Clear error state when navigating
+    }
   };
 
   const handleForward = () => {
-    if (currentIndex < history.length - 1) setCurrentIndex(currentIndex + 1);
+    if (currentIndex < history.length - 1) {
+      setCurrentIndex(currentIndex + 1);
+      setIsLoading(false); // Clear loading state when navigating
+      setError(null); // Clear error state when navigating
+    }
   };
 
   const handleHome = () => {
@@ -228,7 +249,6 @@ const App: React.FC = () => {
     if (window.confirm("WARNING: RESET TERMINAL?\n\nThis will wipe the current session, clear all history, and remove the uploaded image.")) {
       setHistory([]);
       setCurrentIndex(-1);
-      setContent('');
       setRootImage(null);
       if (rootImageUrl) URL.revokeObjectURL(rootImageUrl);
       setRootImageUrl(null);
@@ -312,9 +332,9 @@ const App: React.FC = () => {
             </h2>
 
             {error && <ErrorDisplay error={error} />}
-            {isLoading && content.length === 0 && !error && <LoadingSkeleton />}
-            {content.length > 0 && !error && (
-              <ContentDisplay content={content} isLoading={isLoading} onWordClick={handleWordClick} />
+            {isLoading && (!currentItem?.content || currentItem.content.length < 20) && !error && <LoadingSkeleton />}
+            {currentItem?.content && currentItem.content.length >= 20 && !error && (
+              <ContentDisplay content={currentItem.content} isLoading={isLoading} onWordClick={handleWordClick} />
             )}
           </div>
         </div>
@@ -327,9 +347,9 @@ const App: React.FC = () => {
             </h2>
 
             {error && <ErrorDisplay error={error} />}
-            {isLoading && content.length === 0 && !error && <LoadingSkeleton />}
-            {content.length > 0 && !error && (
-              <ContentDisplay content={content} isLoading={isLoading} onWordClick={handleWordClick} />
+            {isLoading && (!currentItem?.content || currentItem.content.length < 20) && !error && <LoadingSkeleton />}
+            {currentItem?.content && currentItem.content.length >= 20 && !error && (
+              <ContentDisplay content={currentItem.content} isLoading={isLoading} onWordClick={handleWordClick} />
             )}
           </div>
         </div>

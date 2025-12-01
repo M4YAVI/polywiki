@@ -14,8 +14,16 @@ interface Section {
 const InteractiveContent: React.FC<{
   content: string;
   onWordClick: (word: string) => void;
-}> = ({ content, onWordClick }) => {
-  const words = content.split(/(\s+)/).filter(Boolean); // Keep whitespace for spacing
+  isStreaming?: boolean;
+}> = ({ content, onWordClick, isStreaming }) => {
+  // Hide trailing partial headers to prevent "flashing"
+  // If the content ends with a newline followed by '##' and optional text, hide it until it becomes a full section
+  const displayContent = useMemo(() => {
+    if (!isStreaming) return content;
+    return content.replace(/\n## ?[a-zA-Z0-9 ]*$/, '');
+  }, [content, isStreaming]);
+
+  const words = displayContent.split(/(\s+)/).filter(Boolean); // Keep whitespace for spacing
 
   return (
     <p style={{ margin: 0, lineHeight: '1.6' }}>
@@ -39,16 +47,10 @@ const InteractiveContent: React.FC<{
         // Render whitespace as-is
         return <span key={index}>{word}</span>;
       })}
+      {isStreaming && <span className="blinking-cursor">|</span>}
     </p>
   );
 };
-
-const StreamingContent: React.FC<{ content: string }> = ({ content }) => (
-  <p style={{ margin: 0, lineHeight: '1.6' }}>
-    {content}
-    <span className="blinking-cursor">|</span>
-  </p>
-);
 
 const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, isLoading, onWordClick }) => {
   const [activeTab, setActiveTab] = useState<string>('General');
@@ -80,7 +82,15 @@ const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, isLoading, onW
             .map(line => line.replace(/^[-*]\s+/, '').trim())
             .filter(Boolean);
         } else {
-          parsedSections.push({ title, content: body });
+          // Check if we already have a section with this title (case-insensitive)
+          const existingSectionIndex = parsedSections.findIndex(s => s.title.toLowerCase() === title.toLowerCase());
+
+          if (existingSectionIndex !== -1) {
+            // Append content to existing section
+            parsedSections[existingSectionIndex].content += '\n\n' + body;
+          } else {
+            parsedSections.push({ title, content: body });
+          }
         }
       }
     }
@@ -97,55 +107,55 @@ const ContentDisplay: React.FC<ContentDisplayProps> = ({ content, isLoading, onW
   // Find active section content
   const activeSection = sections.find(s => s.title === activeTab) || sections[0];
 
+  // Determine if the active section is the one currently receiving data
+  // We assume the last section is the one streaming if isLoading is true
+  const isSectionStreaming = isLoading && activeSection === sections[sections.length - 1];
+
   if (!content) return null;
 
   return (
     <div className="content-display">
-      {/* Tabs */}
-      {sections.length > 1 && (
-        <div className="tabs-container" style={{
-          display: 'flex',
-          gap: '1rem',
-          marginBottom: '1.5rem',
-          overflowX: 'auto',
-          paddingBottom: '0.5rem',
-          borderBottom: '1px solid rgba(255,255,255,0.1)'
-        }}>
-          {sections.map((section) => (
-            <button
-              key={section.title}
-              onClick={() => setActiveTab(section.title)}
-              className={`tab-button ${activeTab === section.title ? 'active' : ''}`}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: activeTab === section.title ? 'white' : '#888',
-                cursor: 'pointer',
-                fontSize: '0.9rem',
-                fontWeight: activeTab === section.title ? 'bold' : 'normal',
-                padding: '0.5rem 0',
-                textTransform: 'uppercase',
-                borderBottom: activeTab === section.title ? '2px solid white' : '2px solid transparent',
-                transition: 'all 0.2s ease',
-                whiteSpace: 'nowrap'
-              }}
-            >
-              {section.title}
-            </button>
-          ))}
-        </div>
-      )}
+      {/* Tabs - Always render to prevent layout shift */}
+      <div className="tabs-container" style={{
+        display: 'flex',
+        gap: '1rem',
+        marginBottom: '1.5rem',
+        overflowX: 'auto',
+        paddingBottom: '0.5rem',
+        borderBottom: '1px solid rgba(255,255,255,0.1)',
+        minHeight: '42px' // Reserve height
+      }}>
+        {sections.map((section) => (
+          <button
+            key={section.title}
+            onClick={() => setActiveTab(section.title)}
+            className={`tab-button ${activeTab === section.title ? 'active' : ''}`}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: activeTab === section.title ? 'white' : '#888',
+              cursor: 'pointer',
+              fontSize: '0.9rem',
+              fontWeight: activeTab === section.title ? 'bold' : 'normal',
+              padding: '0.5rem 0',
+              textTransform: 'uppercase',
+              borderBottom: activeTab === section.title ? '2px solid white' : '2px solid transparent',
+              transition: 'all 0.2s ease',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            {section.title}
+          </button>
+        ))}
+      </div>
 
       {/* Content Area */}
       <div className="tab-content">
-        {isLoading && activeSection === sections[sections.length - 1] ? (
-          // If we are loading and this is the last section (likely being streamed), show cursor
-          // Note: This is a simplification. Ideally we'd know if THIS specific section is still streaming.
-          // For now, if global loading is true, we assume the last section is the active one receiving data.
-          <StreamingContent content={activeSection.content} />
-        ) : (
-          <InteractiveContent content={activeSection.content} onWordClick={onWordClick} />
-        )}
+        <InteractiveContent
+          content={activeSection.content}
+          onWordClick={onWordClick}
+          isStreaming={isSectionStreaming}
+        />
       </div>
 
       {/* Related Topics */}
