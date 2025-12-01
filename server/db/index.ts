@@ -7,14 +7,28 @@ import dotenv from 'dotenv';
 // In Netlify, env vars are injected directly.
 dotenv.config({ path: '.env.local' });
 
-const url = process.env.DATABASE_URL ? process.env.DATABASE_URL : 'file:local.db';
+const url = process.env.DATABASE_URL;
 const authToken = process.env.DATABASE_AUTH_TOKEN;
 
-console.log('Database URL:', url);
+// In production (Netlify), we must have a DATABASE_URL.
+// We should not fall back to a local file which doesn't exist/work in lambda.
+if (!url && process.env.NODE_ENV === 'production') {
+    console.error('CRITICAL: DATABASE_URL is not set in production environment.');
+}
 
-const client = createClient({
-    url,
-    authToken,
-});
+const finalUrl = url || 'file:local.db';
+
+console.log('Database URL set to:', finalUrl);
+
+let client;
+try {
+    client = createClient({
+        url: finalUrl,
+        authToken,
+    });
+} catch (e) {
+    console.error('Failed to create database client:', e);
+    throw e;
+}
 
 export const db = drizzle(client, { schema });
