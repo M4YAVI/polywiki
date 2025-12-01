@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { handle } from 'hono/netlify';
 import { cors } from 'hono/cors';
-import { db } from '../../server/db';
+import { db, initError } from '../../server/db';
 import { favorites } from '../../server/db/schema';
 import { eq, desc } from 'drizzle-orm';
 
@@ -14,6 +14,20 @@ const app = new Hono();
 
 // Middleware
 app.use('/*', cors());
+
+// Middleware to check database connection
+app.use(async (c, next) => {
+    if (initError) {
+        return c.json({
+            error: 'Database connection failed during initialization',
+            details: initError instanceof Error ? initError.message : String(initError)
+        }, 500);
+    }
+    if (!db) {
+        return c.json({ error: 'Database client is not initialized' }, 500);
+    }
+    await next();
+});
 
 // Routes
 app.get('/api/favorites', async (c) => {
