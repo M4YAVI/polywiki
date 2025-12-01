@@ -128,10 +128,12 @@ const App: React.FC = () => {
           }
         } else {
           console.error('Failed to add favorite');
+          alert('Failed to save favorite. If you are on Netlify, make sure you have added DATABASE_URL and DATABASE_AUTH_TOKEN to your Site Settings > Environment Variables.');
         }
       }
     } catch (err) {
       console.error('Failed to toggle favorite', err);
+      alert('Error saving favorite. Check console for details.');
     }
   };
 

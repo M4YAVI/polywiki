@@ -4,7 +4,6 @@ import { cors } from 'hono/cors';
 import { db } from '../../server/db';
 import { favorites } from '../../server/db/schema';
 import { eq, desc } from 'drizzle-orm';
-import { v4 as uuidv4 } from 'uuid';
 
 const app = new Hono();
 
@@ -38,7 +37,7 @@ app.post('/api/favorites', async (c) => {
         }
 
         const newFavorite = {
-            id: uuidv4(),
+            id: crypto.randomUUID(),
             label,
             content,
             type: type || 'text',
