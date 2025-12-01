@@ -128,7 +128,16 @@ const App: React.FC = () => {
           }
         } else {
           console.error('Failed to add favorite');
-          alert('Failed to save favorite. If you are on Netlify, make sure you have added DATABASE_URL and DATABASE_AUTH_TOKEN to your Site Settings > Environment Variables.');
+          let errorMessage = 'Failed to save favorite.';
+          try {
+            const errorData = await res.json();
+            if (errorData && errorData.error) {
+              errorMessage += ` Server says: ${errorData.error}`;
+            }
+          } catch (e) {
+            errorMessage += ' Could not parse server error.';
+          }
+          alert(`${errorMessage}\n\nCheck Netlify Logs if this persists.`);
         }
       }
     } catch (err) {

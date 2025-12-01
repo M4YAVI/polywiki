@@ -46,8 +46,9 @@ app.post('/api/favorites', async (c) => {
         await db.insert(favorites).values(newFavorite);
         return c.json(newFavorite, 201);
     } catch (error) {
-        console.error(error);
-        return c.json({ error: 'Failed to add favorite' }, 500);
+        console.error('API Error:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        return c.json({ error: `Failed to add favorite: ${errorMessage}` }, 500);
     }
 });
 
